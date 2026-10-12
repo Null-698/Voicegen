@@ -1,0 +1,31 @@
+name: Unsigned iOS IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install xtool
+        run: brew install xtool-org/tap/xtool
+      - name: Toolchain
+        run: |
+          swift --version
+          xtool --help
+          xcodebuild -version
+      - name: Build unsigned IPA with xtool
+        run: xtool dev build --configuration release --ipa
+      - name: List output
+        if: always()
+        run: find xtool -maxdepth 3 -type f \( -name '*.ipa' -o -name '*.app' \) -print || true
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Voicegen-unsigned-ipa
+          path: xtool/*.ipa
+          if-no-files-found: error
