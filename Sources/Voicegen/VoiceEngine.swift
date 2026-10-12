@@ -11,6 +11,13 @@ enum VoicegenError: LocalizedError {
     }
 }
 
+enum RUAccentAvailability: Equatable {
+    case unknown
+    case checking
+    case active
+    case unavailable
+}
+
 @MainActor
 final class VoiceEngine: ObservableObject {
     @Published private(set) var status = "Model required"
@@ -20,12 +27,111 @@ final class VoiceEngine: ObservableObject {
     @Published private(set) var loading = false
     @Published private(set) var generating = false
     @Published private(set) var isReady = false
+    @Published private(set) var ruAccentAvailability: RUAccentAvailability = .unknown
+    @Published private(set) var loadingPhase = ""
+    @Published private(set) var loadingElapsed = 0
+    @Published private(set) var generationElapsed = 0
     @Published private(set) var lastOutput: URL?
     @Published var alert: String?
 
     private var model: ChatterboxCoreMLModel?
     private var downloadTask: Task<Void, Never>?
     private var player: AVAudioPlayer?
+    private var loadingTimer: Timer?
+    private var generationTimer: Timer?
+    private var loadStartedAt: Date?
+    private var generationStartedAt: Date?
+    private var predictedLoadDuration: TimeInterval?
+    private var predictedGenerationDuration: TimeInterval?
+
+    private static let loadHistoryKey = "voicegen.timing.modelLoad"
+    private static let generateHistoryPrefix = "voicegen.timing.generate."
+
+    var loadingTimingText: String {
+        Self.timingText(elapsed: loadingElapsed, estimate: predictedLoadDuration)
+    }
+
+    var generationTimingText: String {
+        Self.timingText(elapsed: generationElapsed, estimate: predictedGenerationDuration)
+    }
+
+    private static func timingText(elapsed: Int, estimate: TimeInterval?) -> String {
+        if let estimate, estimate.isFinite, estimate > 0 {
+            let remaining = Int(ceil(estimate - Double(elapsed)))
+            if remaining > 0 {
+                return "~\(clock(remaining)) left · \(clock(elapsed)) elapsed"
+            }
+            return "Longer than expected · \(clock(elapsed)) elapsed"
+        }
+        return "Estimating… · \(clock(elapsed)) elapsed"
+    }
+
+    private static func clock(_ seconds: Int) -> String {
+        let seconds = max(seconds, 0)
+        if seconds >= 3600 {
+            return String(format: "%d:%02d:%02d", seconds / 3600,
+                          (seconds % 3600) / 60, seconds % 60)
+        }
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    private func beginLoadClock() {
+        loadingTimer?.invalidate()
+        loadingElapsed = 0
+        loadStartedAt = Date()
+        let baseline = UserDefaults.standard.double(forKey: Self.loadHistoryKey)
+        predictedLoadDuration = baseline > 0 ? baseline : nil
+        loadingTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, let start = self.loadStartedAt else { return }
+                self.loadingElapsed = Int(Date().timeIntervalSince(start))
+            }
+        }
+    }
+
+    private func endLoadClock(success: Bool) {
+        loadingTimer?.invalidate()
+        loadingTimer = nil
+        if success, let start = loadStartedAt {
+            let duration = Date().timeIntervalSince(start)
+            if duration > 0 {
+                let old = UserDefaults.standard.double(forKey: Self.loadHistoryKey)
+                let average = old > 0 ? (old * 0.6 + duration * 0.4) : duration
+                UserDefaults.standard.set(average, forKey: Self.loadHistoryKey)
+            }
+        }
+        loadStartedAt = nil
+    }
+
+    private func beginGenerationClock(characters: Int, language: String) {
+        generationTimer?.invalidate()
+        generationElapsed = 0
+        generationStartedAt = Date()
+        let rate = UserDefaults.standard.double(forKey: Self.generateHistoryPrefix + language)
+        predictedGenerationDuration = rate > 0 ? rate * Double(characters) : nil
+        generationTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, let start = self.generationStartedAt else { return }
+                self.generationElapsed = Int(Date().timeIntervalSince(start))
+            }
+        }
+    }
+
+    private func endGenerationClock(success: Bool, characters: Int, language: String) {
+        generationTimer?.invalidate()
+        generationTimer = nil
+        if success, let start = generationStartedAt, characters > 0 {
+            let duration = Date().timeIntervalSince(start)
+            if duration > 0 {
+                let key = Self.generateHistoryPrefix + language
+                let rate = duration / Double(characters)
+                let old = UserDefaults.standard.double(forKey: key)
+                let average = old > 0 ? (old * 0.6 + rate * 0.4) : rate
+                UserDefaults.standard.set(average, forKey: key)
+            }
+        }
+        generationStartedAt = nil
+    }
 
     private let repo = ModelRepository.Variant.multilingual
     private var home: URL {
@@ -43,26 +149,48 @@ final class VoiceEngine: ObservableObject {
     }
 
     func load() {
-        guard !loading, !downloading, !isReady, let dir = modelDirectory else { return }
+        guard !loading, !downloading, !generating, !isReady,
+              let dir = modelDirectory else { return }
         loading = true
+        loadingPhase = "Checking Russian stress"
+        ruAccentAvailability = .checking
         status = "Preparing model"
+        beginLoadClock()
         Task {
+            var succeeded = false
             do {
                 guard ModelRepository.isMultilingualModelDirectory(dir) else {
                     throw VoicegenError.message("Model is incomplete. Resume downloading.")
                 }
-                // Russian accents are resolved locally once the optional stress model is cached.
-                let stress = await RuAccentStress.makeOrFallback(downloadHFHome: home, hfToken: nil)
-                let loaded = try await ChatterboxCoreMLModel.load(from: dir, russianStress: stress)
+                // The factory silently falls back when RUAccent fails. Inspect the
+                // concrete result rather than treating a folder as proof of success.
+                let stress = await RuAccentStress.makeOrFallback(
+                    downloadHFHome: home, hfToken: nil)
+                let hasRUAccent = stress is RuAccentStress
+                loadingPhase = "Loading speech model"
+                let loaded = try await ChatterboxCoreMLModel.load(
+                    from: dir, russianStress: stress)
                 self.model = loaded
+                ruAccentAvailability = hasRUAccent ? .active : .unavailable
                 isReady = true
                 status = "Ready · Offline"
+                succeeded = true
             } catch {
+                ruAccentAvailability = .unknown
                 status = "Model not ready"
                 alert = error.localizedDescription
             }
+            endLoadClock(success: succeeded)
             loading = false
         }
+    }
+
+    func retryRUAccent() {
+        guard isReady, ruAccentAvailability == .unavailable,
+              !loading, !downloading, !generating else { return }
+        model = nil
+        isReady = false
+        load()
     }
 
     func startDownload() {
@@ -130,7 +258,9 @@ final class VoiceEngine: ObservableObject {
         generating = true
         status = "Generating"
         lastOutput = nil
+        beginGenerationClock(characters: content.count, language: language)
         Task {
+            var succeeded = false
             do {
                 let options = GenerationOptions.multilingual(
                     language: language, exaggeration: 0.6, cfgWeight: 0.5)
@@ -144,11 +274,13 @@ final class VoiceEngine: ObservableObject {
                 } // Close the file before opening it for playback.
                 lastOutput = target
                 status = "Ready · Offline"
+                succeeded = true
                 play()
             } catch {
                 status = "Generation failed"
                 alert = error.localizedDescription
             }
+            endGenerationClock(success: succeeded, characters: content.count, language: language)
             generating = false
         }
     }

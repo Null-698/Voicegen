@@ -155,7 +155,7 @@ struct GenerateView: View {
                                     .foregroundStyle(StudioStyle.accent)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text("Multilingual model").font(.headline)
-                                    Text(engine.status)
+                                    Text(engine.loading ? engine.loadingTimingText : engine.status)
                                         .font(.subheadline)
                                         .foregroundStyle(StudioStyle.subtle)
                                 }
@@ -184,6 +184,18 @@ struct GenerateView: View {
                     .foregroundStyle(.black)
                     .disabled(!engine.isReady || engine.generating ||
                               text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    if engine.generating {
+                        HStack(spacing: 9) {
+                            ProgressView()
+                                .tint(StudioStyle.accent)
+                            Text(engine.generationTimingText)
+                                .monospacedDigit()
+                                .font(.subheadline)
+                                .foregroundStyle(StudioStyle.subtle)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
 
                     if let output = engine.lastOutput {
                         GlassPanel {
@@ -341,6 +353,50 @@ struct ModelSheet: View {
                                 .foregroundStyle(StudioStyle.subtle)
                         }
                     }
+                    if engine.loading {
+                        GlassPanel {
+                            HStack(spacing: 12) {
+                                ProgressView().tint(StudioStyle.accent)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(engine.loadingPhase)
+                                        .font(.subheadline.weight(.medium))
+                                    Text(engine.loadingTimingText)
+                                        .font(.caption)
+                                        .monospacedDigit()
+                                        .foregroundStyle(StudioStyle.subtle)
+                                }
+                            }
+                        }
+                    }
+
+                    if engine.isReady || engine.loading {
+                        GlassPanel {
+                            HStack(spacing: 12) {
+                                Text("Russian stress")
+                                    .font(.subheadline.weight(.medium))
+                                Spacer()
+                                switch engine.ruAccentAvailability {
+                                case .active:
+                                    Label("Active", systemImage: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                case .unavailable:
+                                    Text("Fallback")
+                                        .foregroundStyle(.orange)
+                                    Button("Retry") { engine.retryRUAccent() }
+                                        .buttonStyle(.bordered)
+                                case .checking:
+                                    ProgressView()
+                                    Text("Checking")
+                                        .foregroundStyle(StudioStyle.subtle)
+                                case .unknown:
+                                    Text("Not checked")
+                                        .foregroundStyle(StudioStyle.subtle)
+                                }
+                            }
+                            .font(.subheadline)
+                        }
+                    }
+
                     if engine.downloading || engine.paused {
                         ProgressView(value: engine.progress)
                             .tint(StudioStyle.accent)
@@ -364,13 +420,17 @@ struct ModelSheet: View {
                         Button("Resume download", systemImage: "play.fill") { engine.resumeDownload() }
                             .buttonStyle(.borderedProminent)
                     } else if engine.modelDirectory != nil {
-                        Button(engine.loading ? "Loading…" : "Load model", systemImage: "bolt.fill") {
-                            engine.load()
+                        if !engine.loading {
+                            Button("Load model", systemImage: "bolt.fill") {
+                                engine.load()
+                            }
+                            .buttonStyle(.borderedProminent)
                         }
-                        .disabled(engine.loading)
                         .buttonStyle(.borderedProminent)
-                        Button("Repair / resume download") { engine.resumeDownload() }
-                            .font(.subheadline)
+                        if !engine.loading {
+                            Button("Repair / resume download") { engine.resumeDownload() }
+                                .font(.subheadline)
+                        }
                     } else {
                         Button("Download model", systemImage: "arrow.down") { engine.startDownload() }
                             .buttonStyle(.borderedProminent)
