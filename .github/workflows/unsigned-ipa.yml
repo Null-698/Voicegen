@@ -45,6 +45,20 @@ jobs:
           set -euo pipefail
           app="$PWD/build/DerivedData/Build/Products/Release-iphoneos/Voicegen.app"
           test -d "$app"
+          plist="$app/Info.plist"
+          test -f "$plist"
+          plutil -lint "$plist"
+          executable=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$plist")
+          identifier=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$plist")
+          package_type=$(/usr/libexec/PlistBuddy -c "Print :CFBundlePackageType" "$plist")
+          test "$identifier" = "app.voicegen.offline"
+          test "$package_type" = "APPL"
+          test -n "$executable"
+          test "$executable" != "(null)"
+          test -f "$app/$executable"
+          file "$app/$executable"
+          xcrun lipo -archs "$app/$executable" | grep -qw arm64
+          echo "Validated $identifier / $executable (arm64)"
           mkdir -p build/export/Payload
           ditto "$app" build/export/Payload/Voicegen.app
           (cd build/export && zip -qry Voicegen-unsigned.ipa Payload)
