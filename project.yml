@@ -1,0 +1,34 @@
+name: Voicegen
+options:
+  createIntermediateGroups: true
+  minimumXcodeGenVersion: "2.42.0"
+packages:
+  ChatterboxCoreML:
+    url: https://github.com/iliasaz/chatterbox-coreml.git
+    branch: main
+targets:
+  Voicegen:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: Sources/Voicegen
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.voicegen.offline
+        PRODUCT_NAME: Voicegen
+        INFOPLIST_FILE: Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1"
+        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+        SWIFT_VERSION: "5.0"
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+    dependencies:
+      - package: ChatterboxCoreML
+        product: ChatterboxCoreML
+schemes:
+  Voicegen:
+    build:
+      targets:
+        Voicegen: all

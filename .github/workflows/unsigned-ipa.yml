@@ -1,40 +1,66 @@
 name: Unsigned iOS IPA
+
 on:
-  workflow_dispatch:
   push:
     branches: [main]
 
 concurrency:
-  group: voicegen-unsigned-ipa
+  group: voicegen-ios-unsigned
   cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: xcode-27
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-      - name: Select current Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
-      - name: Validate Swift package manifest
-        run: swift package dump-package > /dev/null
-      - name: Install xtool
-        run: brew install xtool-org/tap/xtool
-      - name: Toolchain
+      - name: Verify Xcode
         run: |
-          swift --version
-          xtool --help
           xcodebuild -version
-      - name: Build unsigned IPA with xtool
-        run: xtool dev build --configuration release --ipa
-      - name: List output
-        if: always()
-        run: find xtool -maxdepth 3 -type f \( -name '*.ipa' -o -name '*.app' \) -print || true
+          xcrun --sdk iphoneos --show-sdk-version
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate --spec project.yml
+          xcodebuild -list -project Voicegen.xcodeproj
+      - name: Build unsigned app
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild \
+            -project Voicegen.xcodeproj \
+            -scheme Voicegen \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$PWD/build/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build/xcodebuild.log
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$PWD/build/DerivedData/Build/Products/Release-iphoneos/Voicegen.app"
+          test -d "$app"
+          mkdir -p build/export/Payload
+          ditto "$app" build/export/Payload/Voicegen.app
+          (cd build/export && zip -qry Voicegen-unsigned.ipa Payload)
+          unzip -t build/export/Voicegen-unsigned.ipa | tail -1
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
           name: Voicegen-unsigned-ipa
-          path: xtool/*.ipa
+          path: build/export/Voicegen-unsigned.ipa
           if-no-files-found: error
+          retention-days: 14
+      - name: Upload failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Voicegen-xcode-build-log
+          path: build/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 14
