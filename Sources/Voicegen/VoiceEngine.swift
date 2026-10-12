@@ -138,8 +138,10 @@ final class VoiceEngine: ObservableObject {
                 let outputDir = home.appendingPathComponent("Generated", isDirectory: true)
                 try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
                 let target = outputDir.appendingPathComponent("voicegen-\(UUID().uuidString).wav")
-                let writer = try AVAudioFile(forWriting: target, settings: audio.format.settings)
-                try writer.write(from: audio)
+                do {
+                    let writer = try AVAudioFile(forWriting: target, settings: audio.format.settings)
+                    try writer.write(from: audio)
+                } // Close the file before opening it for playback.
                 lastOutput = target
                 status = "Ready · Offline"
                 play()
