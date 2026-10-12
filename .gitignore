@@ -1,0 +1,11 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+build/
+Voicegen.xcodeproj/
+*.xcworkspace/xcuserdata/
+*.xcuserstate
+*.xcresult/
+*.ipa
+*.app
