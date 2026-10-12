@@ -60,6 +60,9 @@ final class VoiceLibrary: ObservableObject {
     }
 
     func remove(_ voice: SavedVoice) {
+        if UserDefaults.standard.string(forKey: "voicegen.selectedVoice") == voice.id.uuidString {
+            UserDefaults.standard.set("default", forKey: "voicegen.selectedVoice")
+        }
         voices.removeAll { $0.id == voice.id }
         try? FileManager.default.removeItem(at: url(for: voice))
         try? save()
