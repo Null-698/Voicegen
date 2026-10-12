@@ -3,7 +3,10 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-  pull_request:
+
+concurrency:
+  group: voicegen-unsigned-ipa
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -15,6 +18,8 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
+      - name: Validate Swift package manifest
+        run: swift package dump-package > /dev/null
       - name: Install xtool
         run: brew install xtool-org/tap/xtool
       - name: Toolchain

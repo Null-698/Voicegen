@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "Voicegen",
-    platforms: [.iOS(.v26)],
+    platforms: [.iOS("26.0")],
     products: [.library(name: "Voicegen", targets: ["Voicegen"])],
     dependencies: [
         .package(url: "https://github.com/iliasaz/chatterbox-coreml.git", branch: "main")
