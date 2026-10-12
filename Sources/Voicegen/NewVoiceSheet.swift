@@ -73,7 +73,7 @@ struct NewVoiceSheet: View {
                         }
                     }
 
-                    Text("Use 20–30 seconds of clear speech for the best clone.")
+                    Text("Use 20–30 seconds of clear speech. Longer clips are trimmed.")
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.7))
                         .padding(.horizontal, 4)

@@ -43,9 +43,19 @@ final class VoiceLibrary: ObservableObject {
         try FileManager.default.createDirectory(at: Self.folder, withIntermediateDirectories: true)
         // Creating the embedding can be computationally expensive. Do not block SwiftUI.
         let output = try await Task.detached(priority: .userInitiated) {
+            // VEMel accepts at most 640,000 samples at 16 kHz (40 seconds).
+            // Longer imported clips must be cropped before calling VoiceCloner,
+            // whose speaker encoder otherwise receives the entire waveform.
+            let prepared = try VoiceSamplePreprocessor.prepare(source)
+            defer { prepared.cleanup() }
             let cloner = try await VoiceCloner(modelDirectory: modelDirectory)
-            try cloner.cloneVoice(from: source, to: destination)
-            return destination
+            do {
+                try cloner.cloneVoice(from: prepared.url, to: destination)
+                return destination
+            } catch {
+                try? FileManager.default.removeItem(at: destination)
+                throw error
+            }
         }.value
         guard FileManager.default.fileExists(atPath: output.path) else {
             throw VoicegenError.message("Voice was not saved.")
