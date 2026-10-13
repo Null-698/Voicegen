@@ -78,6 +78,8 @@ struct GenerateView: View {
     @Binding var showModel: Bool
     @AppStorage("voicegen.language") private var language = "ru"
     @AppStorage("voicegen.selectedVoice") private var selectedVoice = "default"
+    @AppStorage("voicegen.sentencePause") private var sentencePause = 0.15
+    @AppStorage("voicegen.commaPause") private var commaPause = 0.05
     @State private var text = ""
 
     private var chosenURL: URL? {
@@ -185,10 +187,45 @@ struct GenerateView: View {
                         }
                     }
 
+                    GlassPanel {
+                        DisclosureGroup {
+                            VStack(spacing: 12) {
+                                VStack(spacing: 4) {
+                                    HStack {
+                                        Text("Period").font(.subheadline)
+                                        Spacer()
+                                        Text("\(Int(sentencePause * 1_000)) ms")
+                                            .font(.caption.monospacedDigit())
+                                            .foregroundStyle(StudioStyle.subtle)
+                                    }
+                                    Slider(value: $sentencePause, in: 0...0.5, step: 0.05)
+                                        .accessibilityLabel("Period pause")
+                                }
+                                VStack(spacing: 4) {
+                                    HStack {
+                                        Text("Comma").font(.subheadline)
+                                        Spacer()
+                                        Text("\(Int(commaPause * 1_000)) ms")
+                                            .font(.caption.monospacedDigit())
+                                            .foregroundStyle(StudioStyle.subtle)
+                                    }
+                                    Slider(value: $commaPause, in: 0...0.5, step: 0.05)
+                                        .accessibilityLabel("Comma pause")
+                                }
+                            }
+                            .padding(.top, 10)
+                        } label: {
+                            Label("Punctuation pauses", systemImage: "timer")
+                                .font(.subheadline.weight(.medium))
+                        }
+                        .tint(StudioStyle.accent)
+                    }
+
                     Button {
                         engine.generate(text: text, language: language, voiceURL: chosenURL,
                                         voiceName: selectedVoiceName, history: history,
-                                        playback: playback)
+                                        playback: playback, sentencePause: sentencePause,
+                                        commaPause: commaPause)
                     } label: {
                         HStack(spacing: 10) {
                             if engine.generating { ProgressView().tint(.black) }

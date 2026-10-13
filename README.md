@@ -7,6 +7,7 @@ Offline voice cloning and multilingual TTS for iOS 26+ (including iOS 27). Swift
 - Record/import samples; clone voices locally and store multiple voices.
 - Choose cloned voice and language (23 options, including Russian).
 - Generate, play and share WAV speech.
+- Adjust punctuation pauses (default: 150 ms after periods and 50 ms after commas). Positive pauses activate Chatterbox's silence trimming and pacing, rather than stacking on top of synthesized silence.
 - Pause/resume and seek to any time in generated audio or cloned voice reference samples.
 - Reference samples for new clones are saved as playable CAF audio. Older clones keep their embeddings and can have their original reference recording reattached using the menu in Voices.
 - Browse prior generations, replay, share, or delete them. Older WAVs are recovered.

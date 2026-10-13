@@ -251,7 +251,8 @@ final class VoiceEngine: ObservableObject {
 
     func generate(text: String, language: String, voiceURL: URL?,
                   voiceName: String, history: GenerationHistory,
-                  playback: PlaybackController) {
+                  playback: PlaybackController,
+                  sentencePause: Double, commaPause: Double) {
         let content = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { alert = "Enter text to speak."; return }
         guard let model else { alert = "Download and load the model first."; return }
@@ -264,8 +265,13 @@ final class VoiceEngine: ObservableObject {
         Task {
             var succeeded = false
             do {
-                let options = GenerationOptions.multilingual(
+                var options = GenerationOptions.multilingual(
                     language: language, exaggeration: 0.6, cfgWeight: 0.5)
+                // Positive punctuation pauses activate the runtime's trim +
+                // pace path, removing synthesizer head/tail silence rather than
+                // stacking the pauses onto it.
+                options.sentencePause = max(0, min(sentencePause, 0.5))
+                options.commaPause = max(0, min(commaPause, 0.5))
                 let audio = try await model.generate(content, voice: voiceURL, options: options)
                 let outputDir = home.appendingPathComponent("Generated", isDirectory: true)
                 try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
