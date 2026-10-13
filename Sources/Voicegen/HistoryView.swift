@@ -1,10 +1,8 @@
 import SwiftUI
-import AVFoundation
 
 struct HistoryView: View {
     @EnvironmentObject private var history: GenerationHistory
     @State private var selected: GenerationEntry?
-    @State private var player: AVAudioPlayer?
     @State private var playbackError: String?
 
     var body: some View {
@@ -54,27 +52,15 @@ struct HistoryView: View {
                                 }
                                 .buttonStyle(.plain)
 
+                                AudioTransport(url: history.url(for: entry))
                                 HStack(spacing: 20) {
-                                    Button {
-                                        play(entry)
-                                    } label: {
-                                        Label("Play", systemImage: "play.fill")
-                                    }
                                     ShareLink(item: history.url(for: entry)) {
                                         Label("Share", systemImage: "square.and.arrow.up")
                                     }
                                     Spacer()
-                                    Menu {
-                                        Button("Delete audio", systemImage: "trash",
-                                               role: .destructive) {
-                                            do { try history.delete(entry) }
-                                            catch { playbackError = error.localizedDescription }
-                                        }
-                                    } label: {
-                                        Image(systemName: "ellipsis")
-                                            .frame(width: 32, height: 36)
+                                    HistoryMenu(entry: entry) {
+                                        playbackError = $0
                                     }
-                                    .accessibilityLabel("More options")
                                 }
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.tint)
@@ -97,11 +83,9 @@ struct HistoryView: View {
                             Text(summary(for: entry))
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
-                            HStack(spacing: 18) {
-                                Button("Play", systemImage: "play.fill") { play(entry) }
-                                ShareLink(item: history.url(for: entry)) {
-                                    Label("Share WAV", systemImage: "square.and.arrow.up")
-                                }
+                            AudioTransport(url: history.url(for: entry))
+                            ShareLink(item: history.url(for: entry)) {
+                                Label("Share WAV", systemImage: "square.and.arrow.up")
                             }
                             .buttonStyle(.borderedProminent)
                         }
@@ -136,18 +120,25 @@ struct HistoryView: View {
             .filter { !$0.isEmpty }
             .joined(separator: " · ")
     }
+}
 
-    private func play(_ entry: GenerationEntry) {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default)
-            try session.setActive(true)
-            player?.stop()
-            player = try AVAudioPlayer(contentsOf: history.url(for: entry))
-            player?.prepareToPlay()
-            player?.play()
-        } catch {
-            playbackError = error.localizedDescription
+private struct HistoryMenu: View {
+    @EnvironmentObject private var history: GenerationHistory
+    @EnvironmentObject private var playback: PlaybackController
+    let entry: GenerationEntry
+    let onError: (String) -> Void
+
+    var body: some View {
+        Menu {
+            Button("Delete audio", systemImage: "trash", role: .destructive) {
+                playback.stopIfCurrent(history.url(for: entry))
+                do { try history.delete(entry) }
+                catch { onError(error.localizedDescription) }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .frame(width: 32, height: 36)
         }
+        .accessibilityLabel("More options")
     }
 }

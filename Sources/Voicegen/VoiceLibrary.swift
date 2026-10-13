@@ -6,6 +6,8 @@ struct SavedVoice: Codable, Identifiable, Hashable {
     let id: UUID
     var name: String
     let fileName: String
+    // Optional for backward compatibility: earlier versions saved only the embedding.
+    var sampleFileName: String?
     let createdAt: Date
 }
 
@@ -18,6 +20,15 @@ final class VoiceLibrary: ObservableObject {
             .appendingPathComponent("Voices", isDirectory: true)
     }()
     private var indexURL: URL { Self.folder.appendingPathComponent("index.json") }
+    private static var samplesFolder: URL {
+        folder.appendingPathComponent("Samples", isDirectory: true)
+    }
+
+    func sampleURL(for voice: SavedVoice) -> URL? {
+        guard let fileName = voice.sampleFileName else { return nil }
+        let url = Self.samplesFolder.appendingPathComponent(fileName)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
 
     init() { reload() }
 
@@ -41,22 +52,23 @@ final class VoiceLibrary: ObservableObject {
         guard !trimmed.isEmpty else { throw VoicegenError.message("Enter a voice name.") }
         let entry = SavedVoice(id: UUID(), name: trimmed,
                                fileName: "\(UUID().uuidString)-conds.safetensors",
+                               sampleFileName: "\(UUID().uuidString).caf",
                                createdAt: Date())
         let destination = url(for: entry)
+        let preview = Self.samplesFolder.appendingPathComponent(entry.sampleFileName!)
         try FileManager.default.createDirectory(at: Self.folder, withIntermediateDirectories: true)
-        // Creating the embedding can be computationally expensive. Do not block SwiftUI.
         let output = try await Task.detached(priority: .userInitiated) {
-            // VEMel accepts at most 640,000 samples at 16 kHz (40 seconds).
-            // Longer imported clips must be cropped before calling VoiceCloner,
-            // whose speaker encoder otherwise receives the entire waveform.
             let prepared = try VoiceSamplePreprocessor.prepare(source)
             defer { prepared.cleanup() }
-            let cloner = try await VoiceCloner(modelDirectory: modelDirectory)
             do {
+                // Retain the exact reference clip used for cloning.
+                try VoiceSamplePreprocessor.savePreview(prepared.url, to: preview)
+                let cloner = try await VoiceCloner(modelDirectory: modelDirectory)
                 try cloner.cloneVoice(from: prepared.url, to: destination)
                 return destination
             } catch {
                 try? FileManager.default.removeItem(at: destination)
+                try? FileManager.default.removeItem(at: preview)
                 throw error
             }
         }.value
@@ -67,9 +79,38 @@ final class VoiceLibrary: ObservableObject {
         do { try save() } catch {
             voices.removeAll { $0.id == entry.id }
             try? FileManager.default.removeItem(at: output)
+            try? FileManager.default.removeItem(at: preview)
             throw error
         }
         return entry
+    }
+
+    /// For existing clones made before source audio was retained, let users
+    /// restore the original reference recording without changing the embedding.
+    func attachSample(from source: URL, to voice: SavedVoice) async throws {
+        guard let index = voices.firstIndex(where: { $0.id == voice.id }) else {
+            throw VoicegenError.message("Voice no longer exists.")
+        }
+        let fileName = "\(UUID().uuidString).caf"
+        let destination = Self.samplesFolder.appendingPathComponent(fileName)
+        try await Task.detached(priority: .userInitiated) {
+            let prepared = try VoiceSamplePreprocessor.prepare(source)
+            defer { prepared.cleanup() }
+            try VoiceSamplePreprocessor.savePreview(prepared.url, to: destination)
+        }.value
+        let previous = voices[index]
+        voices[index].sampleFileName = fileName
+        do {
+            try save()
+        } catch {
+            voices[index] = previous
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+        if let previousName = previous.sampleFileName {
+            try? FileManager.default.removeItem(
+                at: Self.samplesFolder.appendingPathComponent(previousName))
+        }
     }
 
     func remove(_ voice: SavedVoice) {
@@ -78,6 +119,10 @@ final class VoiceLibrary: ObservableObject {
         }
         voices.removeAll { $0.id == voice.id }
         try? FileManager.default.removeItem(at: url(for: voice))
+        if let filename = voice.sampleFileName {
+            try? FileManager.default.removeItem(
+                at: Self.samplesFolder.appendingPathComponent(filename))
+        }
         try? save()
     }
 

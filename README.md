@@ -7,6 +7,8 @@ Offline voice cloning and multilingual TTS for iOS 26+ (including iOS 27). Swift
 - Record/import samples; clone voices locally and store multiple voices.
 - Choose cloned voice and language (23 options, including Russian).
 - Generate, play and share WAV speech.
+- Pause/resume and seek to any time in generated audio or cloned voice reference samples.
+- Reference samples for new clones are saved as playable CAF audio. Older clones keep their embeddings and can have their original reference recording reattached using the menu in Voices.
 - Browse prior generations, replay, share, or delete them. Older WAVs are recovered.
 - Display RUAccent status and estimated model load / speech generation times.
 - Include a native app icon drawn at build time with CoreGraphics.

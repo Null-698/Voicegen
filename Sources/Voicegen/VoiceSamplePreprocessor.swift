@@ -15,6 +15,32 @@ enum VoiceSamplePreprocessor {
         }
     }
 
+    /// Store an actual decodable recording alongside a cloned voice.
+    /// Core ML conditionals cannot be played back as speech.
+    static func savePreview(_ source: URL, to destination: URL) throws {
+        let input = try AVAudioFile(forReading: source)
+        let format = input.processingFormat
+        let count = AVAudioFrameCount(min(
+            input.length, AVAudioFramePosition(maxDuration * format.sampleRate)))
+        guard count > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: count) else {
+            throw VoicegenError.message("The reference audio is empty.")
+        }
+        try input.read(into: buffer, frameCount: count)
+        guard buffer.frameLength > 0 else {
+            throw VoicegenError.message("The reference audio could not be decoded.")
+        }
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        do {
+            let output = try AVAudioFile(forWriting: destination, settings: format.settings)
+            try output.write(from: buffer)
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+    }
+
     static func prepare(_ source: URL) throws -> PreparedSample {
         let input = try AVAudioFile(forReading: source)
         let format = input.processingFormat

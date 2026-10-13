@@ -36,7 +36,6 @@ final class VoiceEngine: ObservableObject {
 
     private var model: ChatterboxCoreMLModel?
     private var downloadTask: Task<Void, Never>?
-    private var player: AVAudioPlayer?
     private var loadingTimer: Timer?
     private var generationTimer: Timer?
     private var loadStartedAt: Date?
@@ -251,12 +250,14 @@ final class VoiceEngine: ObservableObject {
     }
 
     func generate(text: String, language: String, voiceURL: URL?,
-                  voiceName: String, history: GenerationHistory) {
+                  voiceName: String, history: GenerationHistory,
+                  playback: PlaybackController) {
         let content = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { alert = "Enter text to speak."; return }
         guard let model else { alert = "Download and load the model first."; return }
         guard !generating else { return }
         generating = true
+        playback.stop()
         status = "Generating"
         lastOutput = nil
         beginGenerationClock(characters: content.count, language: language)
@@ -279,7 +280,7 @@ final class VoiceEngine: ObservableObject {
                 lastOutput = target
                 status = "Ready · Offline"
                 succeeded = true
-                play()
+                playback.toggle(target)
             } catch {
                 status = "Generation failed"
                 alert = error.localizedDescription
@@ -287,16 +288,5 @@ final class VoiceEngine: ObservableObject {
             endGenerationClock(success: succeeded, characters: content.count, language: language)
             generating = false
         }
-    }
-
-    func play() {
-        guard let lastOutput else { return }
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
-            player = try AVAudioPlayer(contentsOf: lastOutput)
-            player?.prepareToPlay()
-            player?.play()
-        } catch { alert = error.localizedDescription }
     }
 }

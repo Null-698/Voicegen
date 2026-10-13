@@ -74,6 +74,7 @@ struct GenerateView: View {
     @EnvironmentObject private var engine: VoiceEngine
     @EnvironmentObject private var library: VoiceLibrary
     @EnvironmentObject private var history: GenerationHistory
+    @EnvironmentObject private var playback: PlaybackController
     @Binding var showModel: Bool
     @AppStorage("voicegen.language") private var language = "ru"
     @AppStorage("voicegen.selectedVoice") private var selectedVoice = "default"
@@ -186,7 +187,8 @@ struct GenerateView: View {
 
                     Button {
                         engine.generate(text: text, language: language, voiceURL: chosenURL,
-                                        voiceName: selectedVoiceName, history: history)
+                                        voiceName: selectedVoiceName, history: history,
+                                        playback: playback)
                     } label: {
                         HStack(spacing: 10) {
                             if engine.generating { ProgressView().tint(.black) }
@@ -228,15 +230,12 @@ struct GenerateView: View {
                                         .foregroundStyle(StudioStyle.subtle)
                                 }
                                 Spacer()
-                                Button { engine.play() } label: {
-                                    Image(systemName: "play.fill").font(.title3)
-                                }
-                                .accessibilityLabel("Play generated audio")
                                 ShareLink(item: output) {
                                     Image(systemName: "square.and.arrow.up").font(.title3)
                                 }
                                 .accessibilityLabel("Share generated audio")
                             }
+                            AudioTransport(url: output)
                         }
                     }
                 }
@@ -261,6 +260,9 @@ struct VoicesView: View {
     @EnvironmentObject private var library: VoiceLibrary
     @Binding var showModel: Bool
     @State private var showingCreate = false
+    @State private var attachingTo: SavedVoice?
+    @State private var importingSample = false
+    @State private var attachmentError: String?
 
     var body: some View {
         NavigationStack {
@@ -296,7 +298,8 @@ struct VoicesView: View {
                     } else {
                         ForEach(library.voices) { voice in
                             GlassPanel {
-                                HStack(spacing: 15) {
+                                VStack(alignment: .leading, spacing: 11) {
+                                    HStack(spacing: 15) {
                                     Image(systemName: "waveform")
                                         .font(.title2)
                                         .foregroundStyle(StudioStyle.accent)
@@ -309,14 +312,17 @@ struct VoicesView: View {
                                             .foregroundStyle(StudioStyle.subtle)
                                     }
                                     Spacer()
-                                    Menu {
-                                        Button("Delete", systemImage: "trash", role: .destructive) {
-                                            library.remove(voice)
-                                        }
-                                    } label: {
-                                        Image(systemName: "ellipsis")
-                                            .foregroundStyle(.white)
-                                            .frame(width: 40, height: 44)
+                                    VoiceMenu(voice: voice) {
+                                        attachingTo = voice
+                                        importingSample = true
+                                    }
+                                    }
+                                    if let sample = library.sampleURL(for: voice) {
+                                        AudioTransport(url: sample)
+                                    } else {
+                                        Text("Reference audio not stored · use ••• to attach it")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
                                     }
                                 }
                             }
@@ -334,6 +340,64 @@ struct VoicesView: View {
                 }
             }
             .sheet(isPresented: $showingCreate) { NewVoiceSheet() }
+            .fileImporter(isPresented: $importingSample, allowedContentTypes: [.audio],
+                          allowsMultipleSelection: false) { result in
+                guard let voice = attachingTo else { return }
+                do {
+                    let urls = try result.get()
+                    guard let url = urls.first else { return }
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    let suffix = url.pathExtension.isEmpty ? "audio" : url.pathExtension
+                    let temporary = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("voicegen-attach-\(UUID().uuidString).\(suffix)")
+                    try FileManager.default.copyItem(at: url, to: temporary)
+                    Task {
+                        defer { try? FileManager.default.removeItem(at: temporary) }
+                        do {
+                            try await library.attachSample(from: temporary, to: voice)
+                        } catch {
+                            attachmentError = error.localizedDescription
+                        }
+                    }
+                } catch {
+                    attachmentError = error.localizedDescription
+                }
+            }
+            .alert("Audio import", isPresented: Binding(
+                get: { attachmentError != nil },
+                set: { if !$0 { attachmentError = nil } }
+            )) {
+                Button("OK", role: .cancel) { attachmentError = nil }
+            } message: {
+                Text(attachmentError ?? "")
+            }
+        }
+    }
+}
+
+/// Keeping transport/menu observations local prevents playback ticks rebuilding the list.
+private struct VoiceMenu: View {
+    @EnvironmentObject private var playback: PlaybackController
+    @EnvironmentObject private var library: VoiceLibrary
+    let voice: SavedVoice
+    let onAttach: () -> Void
+
+    var body: some View {
+        Menu {
+            Button("Attach reference audio", systemImage: "waveform.badge.plus") {
+                onAttach()
+            }
+            Button("Delete", systemImage: "trash", role: .destructive) {
+                if let sample = library.sampleURL(for: voice) {
+                    playback.stopIfCurrent(sample)
+                }
+                library.remove(voice)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .foregroundStyle(.white)
+                .frame(width: 40, height: 44)
         }
     }
 }
