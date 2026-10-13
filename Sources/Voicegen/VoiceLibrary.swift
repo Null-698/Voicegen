@@ -26,11 +26,14 @@ final class VoiceLibrary: ObservableObject {
     }
 
     func reload() {
+        // Never blank a live list when the sandbox index is briefly inaccessible.
         guard let data = try? Data(contentsOf: indexURL),
               let saved = try? JSONDecoder().decode([SavedVoice].self, from: data)
-        else { voices = []; return }
-        voices = saved.filter { FileManager.default.fileExists(atPath: url(for: $0).path) }
-            .sorted { $0.createdAt > $1.createdAt }
+        else { return }
+        let available = saved.filter {
+            FileManager.default.fileExists(atPath: url(for: $0).path)
+        }.sorted { $0.createdAt > $1.createdAt }
+        if available != voices { voices = available }
     }
 
     func clone(name: String, from source: URL, modelDirectory: URL) async throws -> SavedVoice {

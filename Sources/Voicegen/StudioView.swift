@@ -33,8 +33,6 @@ struct GlassPanel<Content: View>: View {
 }
 
 struct StudioView: View {
-    @EnvironmentObject private var engine: VoiceEngine
-    @EnvironmentObject private var library: VoiceLibrary
     @State private var showModel = false
 
     var body: some View {
@@ -43,26 +41,39 @@ struct StudioView: View {
                 .tabItem { Label("Generate", systemImage: "waveform") }
             VoicesView(showModel: $showModel)
                 .tabItem { Label("Voices", systemImage: "person.2.wave.2") }
+            HistoryView()
+                .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
         }
         .tint(StudioStyle.accent)
         .sheet(isPresented: $showModel) { ModelSheet() }
-        .alert("Voicegen", isPresented: Binding(
-            get: { engine.alert != nil },
-            set: { if !$0 { engine.alert = nil } }
-        )) {
-            Button("OK", role: .cancel) { engine.alert = nil }
-        } message: {
-            Text(engine.alert ?? "")
-        }
-        .task {
-            if engine.modelDirectory != nil && !engine.isReady { engine.load() }
-        }
+        .modifier(EnginePresentation())
+    }
+}
+
+/// Engine's timer updates must not invalidate the TabView parent every second.
+private struct EnginePresentation: ViewModifier {
+    @EnvironmentObject private var engine: VoiceEngine
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Voicegen", isPresented: Binding(
+                get: { engine.alert != nil },
+                set: { if !$0 { engine.alert = nil } }
+            )) {
+                Button("OK", role: .cancel) { engine.alert = nil }
+            } message: {
+                Text(engine.alert ?? "")
+            }
+            .task {
+                if engine.modelDirectory != nil && !engine.isReady { engine.load() }
+            }
     }
 }
 
 struct GenerateView: View {
     @EnvironmentObject private var engine: VoiceEngine
     @EnvironmentObject private var library: VoiceLibrary
+    @EnvironmentObject private var history: GenerationHistory
     @Binding var showModel: Bool
     @AppStorage("voicegen.language") private var language = "ru"
     @AppStorage("voicegen.selectedVoice") private var selectedVoice = "default"
@@ -73,6 +84,11 @@ struct GenerateView: View {
             return nil
         }
         return library.url(for: voice)
+    }
+
+    private var selectedVoiceName: String {
+        library.voices.first(where: { $0.id.uuidString == selectedVoice })?.name
+            ?? "Original"
     }
 
     var body: some View {
@@ -169,7 +185,8 @@ struct GenerateView: View {
                     }
 
                     Button {
-                        engine.generate(text: text, language: language, voiceURL: chosenURL)
+                        engine.generate(text: text, language: language, voiceURL: chosenURL,
+                                        voiceName: selectedVoiceName, history: history)
                     } label: {
                         HStack(spacing: 10) {
                             if engine.generating { ProgressView().tint(.black) }
@@ -197,7 +214,8 @@ struct GenerateView: View {
                         .frame(maxWidth: .infinity)
                     }
 
-                    if let output = engine.lastOutput {
+                    if let output = engine.lastOutput,
+                       FileManager.default.fileExists(atPath: output.path) {
                         GlassPanel {
                             HStack(spacing: 14) {
                                 Image(systemName: "waveform.circle.fill")
@@ -240,7 +258,6 @@ struct GenerateView: View {
 }
 
 struct VoicesView: View {
-    @EnvironmentObject private var engine: VoiceEngine
     @EnvironmentObject private var library: VoiceLibrary
     @Binding var showModel: Bool
     @State private var showingCreate = false
@@ -258,17 +275,7 @@ struct VoicesView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 12)
 
-                    Button {
-                        if engine.isReady { showingCreate = true }
-                        else { showModel = true }
-                    } label: {
-                        Label("Add voice", systemImage: "plus")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, minHeight: 56)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(StudioStyle.accent)
-                    .foregroundStyle(.black)
+                    AddVoiceButton(showModel: $showModel, showingCreate: $showingCreate)
 
                     if library.voices.isEmpty {
                         GlassPanel {
@@ -328,6 +335,27 @@ struct VoicesView: View {
             }
             .sheet(isPresented: $showingCreate) { NewVoiceSheet() }
         }
+    }
+}
+
+/// Only this button observes engine readiness; the voice rows remain stable.
+private struct AddVoiceButton: View {
+    @EnvironmentObject private var engine: VoiceEngine
+    @Binding var showModel: Bool
+    @Binding var showingCreate: Bool
+
+    var body: some View {
+        Button {
+            if engine.isReady { showingCreate = true }
+            else { showModel = true }
+        } label: {
+            Label("Add voice", systemImage: "plus")
+                .font(.headline)
+                .frame(maxWidth: .infinity, minHeight: 56)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(StudioStyle.accent)
+        .foregroundStyle(.black)
     }
 }
 
@@ -426,7 +454,6 @@ struct ModelSheet: View {
                             }
                             .buttonStyle(.borderedProminent)
                         }
-                        .buttonStyle(.borderedProminent)
                         if !engine.loading {
                             Button("Repair / resume download") { engine.resumeDownload() }
                                 .font(.subheadline)

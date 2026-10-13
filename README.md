@@ -7,6 +7,9 @@ Offline voice cloning and multilingual TTS for iOS 26+ (including iOS 27). Swift
 - Record/import samples; clone voices locally and store multiple voices.
 - Choose cloned voice and language (23 options, including Russian).
 - Generate, play and share WAV speech.
+- Browse prior generations, replay, share, or delete them. Older WAVs are recovered.
+- Display RUAccent status and estimated model load / speech generation times.
+- Include a native app icon drawn at build time with CoreGraphics.
 - Pause and resume model downloads (finished files are reused; interrupted files may restart).
 - After the initial downloads, cloning and generation are on-device.
 
@@ -20,6 +23,7 @@ To build locally on a Mac:
 
 ```sh
 brew install xcodegen
+swift scripts/generate_icon.swift
 xcodegen generate
 xcodebuild -project Voicegen.xcodeproj -scheme Voicegen \
   -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \

@@ -250,7 +250,8 @@ final class VoiceEngine: ObservableObject {
         }
     }
 
-    func generate(text: String, language: String, voiceURL: URL?) {
+    func generate(text: String, language: String, voiceURL: URL?,
+                  voiceName: String, history: GenerationHistory) {
         let content = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { alert = "Enter text to speak."; return }
         guard let model else { alert = "Download and load the model first."; return }
@@ -272,6 +273,9 @@ final class VoiceEngine: ObservableObject {
                     let writer = try AVAudioFile(forWriting: target, settings: audio.format.settings)
                     try writer.write(from: audio)
                 } // Close the file before opening it for playback.
+                // WAV is saved; metadata failure must not block playback.
+                try? history.add(audioURL: target, text: content, language: language,
+                                 voice: voiceName)
                 lastOutput = target
                 status = "Ready · Offline"
                 succeeded = true
